@@ -28,6 +28,8 @@ exports.uploadFile = async (req, res) => {
         .on('end', async () => {
             try {
                 let skippedRows = 0;
+                let processedRows = 0;
+
 
                 for (const row of results) {
                     const bookingId = row['Reservation Number'] ? row['Reservation Number'] : row['Channel Booking ID'] ? row['Channel Booking ID'] : '';
@@ -45,6 +47,7 @@ exports.uploadFile = async (req, res) => {
                         let name = row['Traveller name'] ? row['Traveller name'] : row['Name'] ? row['Name'] : '';
                         const email = row['Traveller email'] ? row['Traveller email'] : row['Email'] ? row['Email'] : '';
                         const phone = row['Phone Number'] ? row['Phone Number'] : row['Mobile'] ? row['Mobile'] : '';
+                        const dateOfBirth = convertToMySQLDate(row['Date of Birth']?row['Date of Birth'].trim(): '');
 
                         if(!name && email){
                             name = email;
@@ -65,7 +68,7 @@ exports.uploadFile = async (req, res) => {
                             const [travellerResult] = await pool.query(
                                 `INSERT INTO travellers (name, email, mobile, gender, dob, json_data)
                                 VALUES (?, ?, ?, ?, ?, ?)`,
-                                [name, email, phone, row['Gender'], row['Date of Birth'], JSON.stringify(row)]
+                                [name, email, phone, row['Gender'], dateOfBirth, JSON.stringify(row)]
                             );
                             travellerId = travellerResult.insertId;
                         }
@@ -248,14 +251,15 @@ exports.uploadFile = async (req, res) => {
                                 guestCount, ratePlanId, grossAmount, statusId, countryId, regionId, travellerId, JSON.stringify(row)
                             ]
                         );
+                        processedRows ++;
                     } else {
                         skippedRows ++;
                     }
                 }
 
-                res.status(200).json({ success: true, message: 'File processed successfully!', skippedRowCount: skippedRows });
+                res.status(200).json({ success: true, message: 'File processed successfully!', processedRowsCount: processedRows, skippedRowCount: skippedRows });
             } catch (err) {
-                res.status(500).json({ success: false, message: err.message });
+                res.status(500).json({ success: false, message: err.message, processedRowsCount: processedRows, skippedRowCount: skippedRows });
             } finally {
                 // Clean up the uploaded file
                 fs.unlink(req.file.path, (err) => {

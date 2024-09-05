@@ -25,7 +25,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (event) =
         const result = await response.json();
 
         if (response.ok) {
-            showMessage('File uploaded successfully!', 'success');
+            showMessage('File uploaded successfully!', 'success', response.processedRowsCount, response.skippedRowCount);
         } else {
             showMessage('File upload failed: ' + result.message, 'error');
         }
@@ -39,9 +39,9 @@ document.getElementById('uploadForm').addEventListener('submit', async (event) =
     }
 });
 
-function showMessage(message, type) {
+function showMessage(message, type, rowsProcessed = 0, rowsSkipped = 0) {
     const messageRibbon = document.getElementById('messageRibbon');
-    messageRibbon.textContent = message;
+    messageRibbon.textContent = `${message}. Rows Processed: ${rowsProcessed}, Rows Skipped: ${rowsSkipped}`;
     messageRibbon.className = 'message-ribbon show ' + type; // Add type for different styles
 
     setTimeout(() => {
