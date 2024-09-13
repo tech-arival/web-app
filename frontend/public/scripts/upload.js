@@ -5,12 +5,18 @@ document.getElementById('uploadForm').addEventListener('submit', async (event) =
     const fileInput = document.getElementById('file');
     const form = document.getElementById('uploadForm');
     const spinner = document.getElementById('spinner');
-    const messageRibbon = document.getElementById('messageRibbon');
+    // const messageRibbon = document.getElementById('messageRibbon');
+    const hotelInput = document.querySelector('input[name="hotel"]:checked'); // Get selected radio button
 
     const file = fileInput.files[0];
     const formData = new FormData();
     formData.append('file', file);
 
+    // Add selected hotel value to formData
+    if (hotelInput) {
+        formData.append('hotel', hotelInput.value);
+    }
+    
     // Disable the button and show the spinner
     uploadButton.disabled = true;
     form.style.display = 'none';

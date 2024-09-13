@@ -1,6 +1,7 @@
 const fs = require('fs');
 const csv = require('csv-parser');
 const pool = require('../config/db');
+const { validateHeaders, validateRow } = require('../validations/csvValidator');
 
 // Helper function to convert date to MySQL format
 function convertToMySQLDate(dateString) {
@@ -20,19 +21,48 @@ exports.uploadFile = async (req, res) => {
         return res.status(400).json({ message: 'No file uploaded' });
     }
 
+    const { hotel: hotelName } = req.body;
+
     const results = [];
+    let headersValidated = false;
+    let errorLogs = [];
 
     fs.createReadStream(req.file.path)
         .pipe(csv())
-        .on('data', (row) => results.push(row))
+        .on('headers', (headers) => {
+            const headerValidationResult = validateHeaders(headers, hotelName);
+            if (!headerValidationResult.valid) {
+                errorLogs.push(headerValidationResult.errors);
+                if (!res.headersSent) {
+                    return res.status(400).json({ success: false, message: 'Invalid CSV headers', errors: headerValidationResult.errors });
+                }
+            }
+            headersValidated = true;
+        })
+        .on('data', (row) => {
+            if (headersValidated) {
+                const rowValidationResult = validateRow(row, results.length + 1);
+                if (!rowValidationResult.valid) {
+                    errorLogs.push(rowValidationResult.errors.join(', '));
+                } else {
+                    results.push(row); // Only process valid rows
+                }
+            }
+        })
         .on('end', async () => {
+            if (errorLogs.length > 0) {
+                if (!res.headersSent) {
+                    return res.status(400).json({ success: false, message: 'Errors in CSV file', errors: errorLogs });
+                }
+            }
+
             try {
                 let skippedRows = 0;
                 let processedRows = 0;
 
 
                 for (const row of results) {
-                    const bookingId = row['Reservation Number'] ? row['Reservation Number'] : row['Channel Booking ID'] ? row['Channel Booking ID'] : '';
+                    const bookingId = row['reservation_number'] ? row['reservation_number'] : row['channel_booking_id'] ? row['channel_booking_id'] : '';
                     
                     // Check if booking already exists
                     const [existingBooking] = await pool.query(
@@ -44,10 +74,11 @@ exports.uploadFile = async (req, res) => {
                         // Booking does not exist
                         // console.log(row);
 
-                        let name = row['Traveller name'] ? row['Traveller name'] : row['Name'] ? row['Name'] : '';
-                        const email = row['Traveller email'] ? row['Traveller email'] : row['Email'] ? row['Email'] : '';
-                        const phone = row['Phone Number'] ? row['Phone Number'] : row['Mobile'] ? row['Mobile'] : '';
-                        const dateOfBirth = convertToMySQLDate(row['Date of Birth']?row['Date of Birth'].trim(): '');
+                        let name = row['traveller_name'] ? row['traveller_name'] : '';
+                        const email = row['traveller_email'] ? row['traveller_email'] : '';
+                        const phone = row['phone_number'] ? row['phone_number'] : row['mobile_number'] ? row['mobile_number'] : '';
+                        const dateOfBirth = convertToMySQLDate(row['date_of_birth']?row['date_of_birth'].trim(): '');
+                        const gender = row['gender'] ? row['gender'] : '';
 
                         if(!name && email){
                             name = email;
@@ -68,12 +99,12 @@ exports.uploadFile = async (req, res) => {
                             const [travellerResult] = await pool.query(
                                 `INSERT INTO travellers (name, email, mobile, gender, dob, json_data)
                                 VALUES (?, ?, ?, ?, ?, ?)`,
-                                [name, email, phone, row['Gender'], dateOfBirth, JSON.stringify(row)]
+                                [name, email, phone, gender, dateOfBirth, JSON.stringify(row)]
                             );
                             travellerId = travellerResult.insertId;
                         }
 
-                        const bookingStatus = row['Booking status'] ? row['Booking status'] : '';
+                        const bookingStatus = row['booking_status'] ? row['booking_status'] : '';
 
                         // Check if status already exists
                         const [existingStatus] = await pool.query(
@@ -93,8 +124,6 @@ exports.uploadFile = async (req, res) => {
                             statusId = statusResult.insertId;
                         }
 
-                        const hotelName = row['Hotel name'] ? row['Hotel name'] : 'Cloudbeds';
-
                         // Check if hotel already exists
                         const [existingHotel] = await pool.query(
                             `SELECT id FROM hotels WHERE name = ?`,
@@ -113,7 +142,7 @@ exports.uploadFile = async (req, res) => {
                             hotelId = hotelResult.insertId;
                         }
 
-                        const roomType = row['Room Type'] ? row['Room Type'] : '';
+                        const roomType = row['room_type'] ? row['room_type'] : '';
 
                         // Check if room type already exists
                         const [existingRoomType] = await pool.query(
@@ -133,7 +162,7 @@ exports.uploadFile = async (req, res) => {
                             roomTypeId = roomTypeResult.insertId;
                         }
 
-                        const channelName = row['Channel'] ? row['Channel'] : row['Source'] ? row['Source'] : 'Unknown';
+                        const channelName = row['channel'] ? row['channel'] : row['source'] ? row['source'] : 'Unknown';
 
                         // Check if booking channel already exists
                         const [existingChannel] = await pool.query(
@@ -153,7 +182,7 @@ exports.uploadFile = async (req, res) => {
                             channelId = channelResult.insertId;
                         }
 
-                        const countryName = row['Country'] ? row['Country'] : 'Unknown';
+                        const countryName = row['country'] ? row['country'] : 'Unknown';
 
                         // Check if country already exists
                         const [existingCountry] = await pool.query(
@@ -175,7 +204,7 @@ exports.uploadFile = async (req, res) => {
 
                         let regionId;
                         if (countryId){
-                            const regionName = row['Region'] ? row['Region'] : 'Unknown';
+                            const regionName = row['region'] ? row['region'] : 'Unknown';
 
                             // Check if region already exists
                             const [existingRegion] = await pool.query(
@@ -196,7 +225,7 @@ exports.uploadFile = async (req, res) => {
                         }
 
                         let ratePlanId;
-                        const ratePlan = row['Rate plan'] ? row['Rate plan'] : '';
+                        const ratePlan = row['rate_plan'] ? row['rate_plan'] : '';
 
                         if(ratePlan){
                             // Check if rate plan already exists
@@ -221,10 +250,10 @@ exports.uploadFile = async (req, res) => {
                         // console.log(`Raw Arrival Date: ${row['Arrival date']}`);
                         // console.log(`Raw Departure Date: ${row['Departure date']}`);
 
-                        const bookingDateRaw = row['Reservation Date'] ? row['Reservation Date'].trim() : row['Booked on'].trim();
-                        const arrivalDateRaw = row['Reservation Date'] ? row['Reservation Date'].trim() : row['Arrival date'].trim();
-                        const departureDateRaw = row['Check out Date'] ? row['Check out Date'].trim() : row['Departure date'].trim();
-                        const cancellationDateRaw = row['Cancellation Date'] ? row['Cancellation Date'].trim() : row['Cancellation/No show date'] ? row['Cancellation/No show date'].trim() : departureDateRaw;
+                        const bookingDateRaw = row['reservation_date'] ? row['reservation_date'].trim() : row['booking_date'].trim();
+                        const arrivalDateRaw = row['arrival_date'].trim();
+                        const departureDateRaw = row['departure_date'].trim();
+                        const cancellationDateRaw = row['cancelation_date'] ? row['cancelation_date'].trim() : row['cancellation_no_show_date'] ? row['cancellation_no_show_date'].trim() : departureDateRaw;
 
                         // Convert dates to MySQL format
                         const bookingDate = convertToMySQLDate(bookingDateRaw);
@@ -237,8 +266,8 @@ exports.uploadFile = async (req, res) => {
                         // console.error(`departureDate: ${departureDate}`);
                         // console.error(`cancellationDate: ${cancellationDate}`);
 
-                        const guestCount = row['Guest Count'] ? row['Guest Count'] : row['Adults'] ? row['Adults'] : 1;
-                        const grossAmount = row['Gross Amount'] ? row['Gross Amount'] : row['Grand Total'] ? row['Grand Total'] : 0;
+                        const guestCount = row['guest_count'] ? row['guest_count'] : row['adults'] ? row['adults'] : 1;
+                        const grossAmount = row['gross_amount'] ? row['gross_amount'] : row['grand_total'] ? row['grand_total'] : 0;
 
                         // Insert booking data
                         await pool.query(
@@ -256,15 +285,22 @@ exports.uploadFile = async (req, res) => {
                         skippedRows ++;
                     }
                 }
-
-                res.status(200).json({ success: true, message: 'File processed successfully!', processedRowsCount: processedRows, skippedRowCount: skippedRows });
+                if (!res.headersSent) {
+                    res.status(200).json({ success: true, message: 'File processed successfully!', processedRowsCount: processedRows, skippedRowCount: skippedRows });
+                }
             } catch (err) {
-                res.status(500).json({ success: false, message: err.message, processedRowsCount: processedRows, skippedRowCount: skippedRows });
+                if (!res.headersSent) {
+                    res.status(500).json({ success: false, message: err.message });
+                }
             } finally {
-                // Clean up the uploaded file
                 fs.unlink(req.file.path, (err) => {
                     if (err) console.error('Failed to delete the uploaded file:', err);
                 });
+            }
+        })
+        .on('error', (err) => {
+            if (!res.headersSent) {
+                res.status(500).json({ success: false, message: 'Error processing CSV file: ' + err.message });
             }
         });
 };

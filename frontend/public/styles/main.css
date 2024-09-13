@@ -123,3 +123,18 @@ nav ul li a:hover {
 .message-ribbon.error {
     background-color: #f44336; /* Red */
 }
+
+.radio-group {
+    display: flex;
+    gap: 10px; /* Adjust the spacing between radio buttons */
+    margin-bottom: 16px; /* Add some spacing below the radio buttons */
+}
+
+.radio-group div {
+    display: flex;
+    align-items: center;
+}
+
+.radio-group input[type="radio"] {
+    margin-right: 5px; /* Space between radio button and label */
+}
